@@ -1,5 +1,6 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
+import * as L from 'leaflet';
 import { 
   BarChart, 
   Map as MapIcon, 
@@ -24,7 +25,8 @@ import {
   FileCheck,
   Hexagon,
   Vote,
-  AlertCircle
+  AlertCircle,
+  MapPin
 } from 'lucide-react';
 
 // --- Types & Interfaces ---
@@ -36,9 +38,8 @@ interface ZoneData {
   population: number;
   demographicDensity: number; // 0-1 (Density of Demography Y)
   historicalSupport: number; // 0-1 (Support for Entity X)
-  // Hexagon Coordinates for Tessellation (Offset coordinates or generic X/Y for SVG placement)
-  hexQ: number; 
-  hexR: number;
+  lat: number;
+  lng: number;
 }
 
 interface Segment {
@@ -62,26 +63,23 @@ const PARTY_TOTAL_PROJECTION = 500000;
 const PARTY_SEATS_PROJECTION = 5;
 const CANDIDATE_SAFE_THRESHOLD = 40000;
 
-// --- Mock Data Generation (Cámara 2026 Focus) ---
+// --- Mock Data Generation (Geolocated) ---
 
-// Coordinates approximate the geography: Bello North (Top), Medellín South (Bottom)
 const INITIAL_ZONES: ZoneData[] = [
-  // BELLO (Northern Cluster) - High Priority for Yulieth
-  { id: 'b-04', name: 'Bello - París', municipality: 'Bello', population: 65000, demographicDensity: 0.88, historicalSupport: 0.28, hexQ: 1, hexR: 0 },
-  { id: 'b-01', name: 'Bello - Norte', municipality: 'Bello', population: 95000, demographicDensity: 0.82, historicalSupport: 0.48, hexQ: 2, hexR: 0 },
-  { id: 'b-03', name: 'Bello - Niquía', municipality: 'Bello', population: 105000, demographicDensity: 0.78, historicalSupport: 0.35, hexQ: 3, hexR: 0 },
-  { id: 'b-02', name: 'Bello - Centro', municipality: 'Bello', population: 110000, demographicDensity: 0.65, historicalSupport: 0.52, hexQ: 2, hexR: 1 },
+  // BELLO (High Priority)
+  { id: 'b-04', name: 'Bello - París', municipality: 'Bello', population: 65000, demographicDensity: 0.88, historicalSupport: 0.28, lat: 6.3308, lng: -75.5786 },
+  { id: 'b-01', name: 'Bello - Norte', municipality: 'Bello', population: 95000, demographicDensity: 0.82, historicalSupport: 0.48, lat: 6.3450, lng: -75.5550 },
+  { id: 'b-03', name: 'Bello - Niquía', municipality: 'Bello', population: 105000, demographicDensity: 0.78, historicalSupport: 0.35, lat: 6.3520, lng: -75.5420 },
+  { id: 'b-02', name: 'Bello - Centro', municipality: 'Bello', population: 110000, demographicDensity: 0.65, historicalSupport: 0.52, lat: 6.3350, lng: -75.5600 },
   
-  // MEDELLÍN NORTH (Connecting to Bello)
-  { id: 'm-01', name: 'C1 - Popular', municipality: 'Medellín', population: 132000, demographicDensity: 0.75, historicalSupport: 0.45, hexQ: 3, hexR: 2 },
-  { id: 'm-02', name: 'C2 - Santa Cruz', municipality: 'Medellín', population: 110000, demographicDensity: 0.68, historicalSupport: 0.38, hexQ: 2, hexR: 2 },
-  { id: 'm-04', name: 'C4 - Aranjuez', municipality: 'Medellín', population: 140000, demographicDensity: 0.45, historicalSupport: 0.58, hexQ: 2, hexR: 3 },
-  { id: 'm-03', name: 'C3 - Manrique', municipality: 'Medellín', population: 155000, demographicDensity: 0.55, historicalSupport: 0.62, hexQ: 3, hexR: 3 },
-  
-  // MEDELLÍN CENTER
-  { id: 'm-10', name: 'C10 - Candelaria', municipality: 'Medellín', population: 85000, demographicDensity: 0.35, historicalSupport: 0.25, hexQ: 2, hexR: 4 },
-  { id: 'm-16', name: 'C16 - Belén', municipality: 'Medellín', population: 190000, demographicDensity: 0.65, historicalSupport: 0.55, hexQ: 1, hexR: 5 },
-  { id: 'm-14', name: 'C14 - El Poblado', municipality: 'Medellín', population: 128000, demographicDensity: 0.15, historicalSupport: 0.85, hexQ: 3, hexR: 5 },
+  // MEDELLÍN (Strategic Corridors)
+  { id: 'm-01', name: 'C1 - Popular', municipality: 'Medellín', population: 132000, demographicDensity: 0.75, historicalSupport: 0.45, lat: 6.2950, lng: -75.5450 },
+  { id: 'm-02', name: 'C2 - Santa Cruz', municipality: 'Medellín', population: 110000, demographicDensity: 0.68, historicalSupport: 0.38, lat: 6.2850, lng: -75.5550 },
+  { id: 'm-04', name: 'C4 - Aranjuez', municipality: 'Medellín', population: 140000, demographicDensity: 0.45, historicalSupport: 0.58, lat: 6.2750, lng: -75.5600 },
+  { id: 'm-03', name: 'C3 - Manrique', municipality: 'Medellín', population: 155000, demographicDensity: 0.55, historicalSupport: 0.62, lat: 6.2700, lng: -75.5400 },
+  { id: 'm-10', name: 'C10 - Candelaria', municipality: 'Medellín', population: 85000, demographicDensity: 0.35, historicalSupport: 0.25, lat: 6.2480, lng: -75.5700 },
+  { id: 'm-16', name: 'C16 - Belén', municipality: 'Medellín', population: 190000, demographicDensity: 0.65, historicalSupport: 0.55, lat: 6.2300, lng: -75.6000 },
+  { id: 'm-14', name: 'C14 - El Poblado', municipality: 'Medellín', population: 128000, demographicDensity: 0.15, historicalSupport: 0.85, lat: 6.2100, lng: -75.5700 },
 ];
 
 const DEMO_SEGMENTS: Segment[] = [
@@ -109,10 +107,26 @@ const LEGISLATIVE_STATS = {
 
 // --- Helper Functions ---
 
-const calculateHexPosition = (q: number, r: number, size: number) => {
-  const x = size * (Math.sqrt(3) * q + Math.sqrt(3) / 2 * r);
-  const y = size * (3 / 2 * r);
-  return { x, y };
+const getColor = (score: number) => {
+    if (score > 0.8) return '#dc2626'; // High
+    if (score > 0.6) return '#f97316';
+    if (score > 0.4) return '#facc15';
+    if (score > 0.2) return '#93c5fd';
+    return '#e5e7eb'; // Low
+};
+
+// Function to generate hexagon coordinates around a center point
+const getHexagonPoints = (lat: number, lng: number, radiusDegrees: number) => {
+  const points = [];
+  for (let i = 0; i < 6; i++) {
+    const angle_deg = 60 * i - 30; // 30 degree offset for pointy top
+    const angle_rad = Math.PI / 180 * angle_deg;
+    // Simple projection approximation for local area
+    const x = radiusDegrees * Math.cos(angle_rad); 
+    const y = radiusDegrees * Math.sin(angle_rad);
+    points.push([lat + y, lng + x]);
+  }
+  return points;
 };
 
 // --- Components ---
@@ -229,197 +243,184 @@ const DiagnosisView = ({ segments, toggleSegment }: { segments: Segment[], toggl
   );
 };
 
-const GeoAnalysisView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegments: Segment[] }) => {
-  const [hoveredZone, setHoveredZone] = useState<ZoneData | null>(null);
+// --- Real Leaflet Map View ---
 
-  // Logic: Opportunity Index calculation based on 40k goal
+const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegments: Segment[] }) => {
+  const mapContainer = useRef(null);
+  const mapInstance = useRef<L.Map | null>(null);
+  const layerGroups = useRef<{ [key: string]: L.LayerGroup }>({});
+
   const processedZones = useMemo(() => {
     const avgWeight = activeSegments.filter(s => s.active).reduce((acc, curr) => acc + curr.weight, 0) / (activeSegments.filter(s => s.active).length || 1);
     
     return zones.map(zone => {
-      // Adjusted formula: Importance is higher if density intersects with high historical support
       const opportunityIndex = (zone.demographicDensity * avgWeight) * (zone.historicalSupport + 0.3); 
       return { ...zone, opportunityIndex: Math.min(opportunityIndex, 1) };
     }).sort((a, b) => b.opportunityIndex - a.opportunityIndex);
   }, [zones, activeSegments]);
 
-  const getColor = (score: number) => {
-    // Heatmap gradient
-    if (score > 0.8) return '#dc2626'; // Red-600
-    if (score > 0.6) return '#f97316'; // Orange-500
-    if (score > 0.4) return '#facc15'; // Yellow-400
-    if (score > 0.2) return '#93c5fd'; // Blue-300
-    return '#e5e7eb'; // Gray-200
-  };
+  useEffect(() => {
+    if (!mapContainer.current) return;
+    if (mapInstance.current) return; // Initialize once
 
-  const HEX_SIZE = 60;
-  const VIEWBOX_WIDTH = 600;
-  const VIEWBOX_HEIGHT = 600;
-  const X_OFFSET = 50;
-  const Y_OFFSET = 50;
+    // Initialize Map
+    const map = L.map(mapContainer.current).setView([6.2800, -75.5600], 12); // Centered between Bello and Medellin
+    mapInstance.current = map;
+
+    // Add Tiles (OSM)
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+      attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors &copy; <a href="https://carto.com/attributions">CARTO</a>',
+      subdomains: 'abcd',
+      maxZoom: 20
+    }).addTo(map);
+
+    // Initialize Layer Groups
+    const heatLayer = L.layerGroup().addTo(map);
+    const criticalLayer = L.layerGroup();
+    const territoryLayer = L.layerGroup();
+
+    layerGroups.current = {
+      "Estrategia 40k (Calor)": heatLayer,
+      "Puntos Críticos": criticalLayer,
+      "Territorios Base": territoryLayer
+    };
+
+    // Add Layer Control
+    L.control.layers(null, layerGroups.current, { collapsed: false }).addTo(map);
+
+    // Add Legend (Custom Control)
+    const legend = new L.Control({ position: 'bottomright' });
+    legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'info legend bg-white p-3 rounded shadow-lg text-xs');
+        div.innerHTML = `
+            <h4 class="font-bold mb-1">Índice de Oportunidad</h4>
+            <div class="flex items-center mb-1"><span style="background:#dc2626; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Alta (>80%)</div>
+            <div class="flex items-center mb-1"><span style="background:#f97316; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Media-Alta (>60%)</div>
+            <div class="flex items-center mb-1"><span style="background:#facc15; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Media (>40%)</div>
+            <div class="flex items-center"><span style="background:#93c5fd; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Baja (<40%)</div>
+        `;
+        return div;
+    };
+    legend.addTo(map);
+
+    return () => {
+        if(mapInstance.current) {
+            mapInstance.current.remove();
+            mapInstance.current = null;
+        }
+    }
+  }, []);
+
+  // Update Layers when data changes
+  useEffect(() => {
+    if (!mapInstance.current) return;
+
+    const { "Estrategia 40k (Calor)": heatLayer, "Puntos Críticos": criticalLayer, "Territorios Base": territoryLayer } = layerGroups.current;
+    
+    // Clear previous layers
+    heatLayer.clearLayers();
+    criticalLayer.clearLayers();
+    territoryLayer.clearLayers();
+
+    processedZones.forEach(zone => {
+        const color = getColor(zone.opportunityIndex);
+        const radius = 0.008; // Approx size for hexagon
+
+        // 1. Heatmap Layer (Hexagons)
+        const hexPoints = getHexagonPoints(zone.lat, zone.lng, radius);
+        const polygon = L.polygon(hexPoints, {
+            color: 'white',
+            weight: 1,
+            fillColor: color,
+            fillOpacity: 0.6
+        });
+        
+        const popupContent = `
+            <div class="text-sm font-sans">
+                <h3 class="font-bold text-gray-800 border-b pb-1 mb-1">${zone.name}</h3>
+                <p class="mb-0"><strong>Munia:</strong> ${zone.municipality}</p>
+                <p class="mb-0"><strong>Población:</strong> ${zone.population.toLocaleString()}</p>
+                <p class="mb-0"><strong>Afinidad:</strong> ${(zone.opportunityIndex * 100).toFixed(0)}%</p>
+                <div class="mt-2 text-xs text-blue-600 font-semibold">Meta Votos: ${(zone.population * 0.15).toLocaleString()}</div>
+            </div>
+        `;
+        polygon.bindPopup(popupContent);
+        heatLayer.addLayer(polygon);
+
+        // 2. Critical Points Layer (Markers for top zones)
+        if (zone.opportunityIndex > 0.6) {
+             const marker = L.circleMarker([zone.lat, zone.lng], {
+                radius: 4,
+                fillColor: '#1e3a8a', // Blue-900
+                color: '#fff',
+                weight: 1,
+                fillOpacity: 1
+             });
+             marker.bindTooltip(`${zone.name}`, { permanent: false, direction: 'top' });
+             criticalLayer.addLayer(marker);
+        }
+
+        // 3. Territory Layer (Circles)
+        const circle = L.circle([zone.lat, zone.lng], {
+            color: '#6b7280',
+            fillColor: '#9ca3af',
+            fillOpacity: 0.1,
+            radius: 800 // Meters
+        });
+        territoryLayer.addLayer(circle);
+
+    });
+
+  }, [processedZones]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
-      {/* Tessellation Map Visualization */}
-      <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col relative">
-        <div className="flex justify-between items-center mb-6 z-10">
-          <h2 className="text-lg font-bold text-gray-800 flex items-center">
-            <Hexagon className="mr-2 text-red-600" size={20} />
-            Teselación Estratégica (Medellín - Bello)
-          </h2>
-          <div className="flex space-x-2 text-xs bg-white/80 p-2 rounded-lg backdrop-blur-sm">
-            <span className="flex items-center"><span className="w-3 h-3 bg-red-600 rounded-full mr-1"></span>Alta</span>
-            <span className="flex items-center"><span className="w-3 h-3 bg-orange-500 rounded-full mr-1"></span>Media</span>
-            <span className="flex items-center"><span className="w-3 h-3 bg-blue-300 rounded-full mr-1"></span>Baja</span>
-          </div>
-        </div>
-        
-        <div className="flex-1 bg-slate-50 rounded-lg border border-slate-200 relative overflow-hidden flex items-center justify-center">
-            {/* SVG MAP ENGINE */}
-            <svg 
-              width="100%" 
-              height="100%" 
-              viewBox={`0 0 ${VIEWBOX_WIDTH} ${VIEWBOX_HEIGHT}`} 
-              className="w-full h-full"
-              style={{ filter: 'drop-shadow(0px 4px 6px rgba(0,0,0,0.1))' }}
-            >
-              <defs>
-                <filter id="glow">
-                  <feGaussianBlur stdDeviation="2.5" result="coloredBlur"/>
-                  <feMerge>
-                    <feMergeNode in="coloredBlur"/>
-                    <feMergeNode in="SourceGraphic"/>
-                  </feMerge>
-                </filter>
-              </defs>
-              
-              <g transform={`translate(${X_OFFSET}, ${Y_OFFSET})`}>
-                {processedZones.map((zone) => {
-                  const { x, y } = calculateHexPosition(zone.hexQ, zone.hexR, HEX_SIZE);
-                  // Pointy topped points
-                  const points = [0, 1, 2, 3, 4, 5].map(i => {
-                      const angle_deg = 60 * i - 30;
-                      const angle_rad = Math.PI / 180 * angle_deg;
-                      return `${x + HEX_SIZE * Math.cos(angle_rad)},${y + HEX_SIZE * Math.sin(angle_rad)}`;
-                  }).join(" ");
-
-                  const isHovered = hoveredZone?.id === zone.id;
-
-                  return (
-                    <g 
-                      key={zone.id} 
-                      onMouseEnter={() => setHoveredZone(zone)}
-                      onMouseLeave={() => setHoveredZone(null)}
-                      style={{ cursor: 'pointer', transition: 'all 0.3s ease' }}
-                    >
-                      <polygon 
-                        points={points}
-                        fill={getColor(zone.opportunityIndex)}
-                        stroke={isHovered ? "#1e40af" : "white"}
-                        strokeWidth={isHovered ? 4 : 2}
-                        opacity={0.9}
-                        className="transition-all duration-300"
-                      />
-                      {/* Text Label centered */}
-                      <text 
-                        x={x} 
-                        y={y - 5} 
-                        textAnchor="middle" 
-                        fill={zone.opportunityIndex > 0.6 ? "white" : "#374151"}
-                        className="text-[10px] font-bold pointer-events-none"
-                        style={{ fontSize: '10px', fontWeight: 'bold' }}
-                      >
-                        {zone.id.toUpperCase()}
-                      </text>
-                      <text 
-                        x={x} 
-                        y={y + 10} 
-                        textAnchor="middle" 
-                        fill={zone.opportunityIndex > 0.6 ? "white" : "#374151"}
-                        className="text-[8px] pointer-events-none"
-                        style={{ fontSize: '9px' }}
-                      >
-                        {(zone.opportunityIndex * 100).toFixed(0)}%
-                      </text>
-                    </g>
-                  );
-                })}
-              </g>
-            </svg>
-            
-            {/* Floating Info Box for Map */}
-            <div className="absolute bottom-4 right-4 bg-white/90 backdrop-blur-md p-3 rounded-lg shadow-lg border border-gray-200 text-xs max-w-[200px]">
-              <p className="font-bold text-gray-700">Modelo de Teselación</p>
-              <p className="text-gray-500">Hexágonos ponderados para alcanzar el umbral de 40k votos.</p>
-            </div>
-        </div>
+      {/* Map Container */}
+      <div className="lg:col-span-2 bg-white p-2 rounded-xl shadow-sm border border-gray-100 flex flex-col relative h-[600px] lg:h-auto">
+         <div ref={mapContainer} className="flex-1 z-0 rounded-lg overflow-hidden" />
+         <div className="absolute top-4 left-14 z-[400] bg-white/90 backdrop-blur px-3 py-1 rounded shadow text-xs font-bold text-gray-700 pointer-events-none">
+            Mapa Real: Medellín & Bello
+         </div>
       </div>
 
-      {/* Strategic List / Detail Panel */}
-      <div className="bg-white p-0 rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col">
-        {hoveredZone ? (
-           <div className="bg-blue-600 p-6 text-white h-full flex flex-col justify-center animate-in fade-in duration-200">
-              <h3 className="text-2xl font-bold mb-1">{hoveredZone.name}</h3>
-              <p className="text-blue-100 text-sm mb-6 uppercase tracking-wider">{hoveredZone.municipality}</p>
-              
-              <div className="space-y-6">
-                <div>
-                  <div className="flex justify-between text-sm mb-1">
-                    <span>Aporte a los 40k</span>
-                    <span className="font-bold">{(hoveredZone.opportunityIndex * 100).toFixed(1)}%</span>
-                  </div>
-                  <div className="h-2 bg-blue-900/30 rounded-full">
-                    <div className="h-full bg-white rounded-full" style={{ width: `${hoveredZone.opportunityIndex * 100}%` }}></div>
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="bg-white/10 p-3 rounded-lg">
-                    <span className="block text-xs text-blue-200">Población</span>
-                    <span className="block text-lg font-bold">{hoveredZone.population.toLocaleString()}</span>
-                  </div>
-                  <div className="bg-white/10 p-3 rounded-lg">
-                    <span className="block text-xs text-blue-200">Votos CD</span>
-                    <span className="block text-lg font-bold">~{(hoveredZone.population * 0.12).toLocaleString()}</span>
-                  </div>
-                </div>
-                
-                <div className="pt-4 border-t border-white/20">
-                  <p className="text-xs text-blue-100 leading-relaxed">
-                     Esta zona es vital para sumar al volumen del partido ({PARTY_NAME}) y asegurar el voto preferente para Yulieth.
-                  </p>
-                </div>
-              </div>
-           </div>
-        ) : (
-          <>
-            <div className="p-5 border-b border-gray-100 bg-gray-50">
-              <h3 className="font-bold text-gray-800">Top Zonas para los 40k</h3>
-              <p className="text-xs text-gray-500">Prioridad para asegurar el umbral personal</p>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2">
-                {processedZones.slice(0, 8).map((zone, idx) => (
-                    <div key={zone.id} onMouseEnter={() => setHoveredZone(zone)} className="cursor-pointer flex items-center p-3 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-0 transition-colors">
-                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs mr-3">
-                            {idx + 1}
-                        </div>
-                        <div className="flex-1">
-                            <div className="flex justify-between">
-                                <h4 className="text-sm font-semibold text-gray-800">{zone.name}</h4>
-                                <span className="text-xs font-bold text-green-600">Alta Prob.</span>
-                            </div>
-                            <div className="w-full bg-gray-200 h-1.5 rounded-full mt-1">
-                                <div 
-                                    className="bg-blue-600 h-1.5 rounded-full" 
-                                    style={{ width: `${zone.opportunityIndex * 100}%` }}
-                                ></div>
-                            </div>
-                        </div>
+      {/* Strategic Detail Panel */}
+      <div className="bg-white p-0 rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[600px] lg:h-auto">
+        <div className="p-5 border-b border-gray-100 bg-gray-50">
+            <h3 className="font-bold text-gray-800 flex items-center">
+                <Layers className="mr-2 text-blue-600" size={18} />
+                Capas de Inteligencia
+            </h3>
+            <p className="text-xs text-gray-500">Active las capas en el mapa para ver detalles.</p>
+        </div>
+        <div className="flex-1 overflow-y-auto p-2">
+            {processedZones.slice(0, 10).map((zone, idx) => (
+                <div key={zone.id} className="flex items-center p-3 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-0 transition-colors">
+                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs mr-3">
+                        {idx + 1}
                     </div>
-                ))}
-            </div>
-          </>
-        )}
+                    <div className="flex-1">
+                        <div className="flex justify-between">
+                            <h4 className="text-sm font-semibold text-gray-800">{zone.name}</h4>
+                            <span className="text-xs font-bold" style={{ color: getColor(zone.opportunityIndex) }}>
+                                {(zone.opportunityIndex * 100).toFixed(1)}%
+                            </span>
+                        </div>
+                         <div className="flex items-center text-xs text-gray-400 mt-1">
+                             <MapPin size={10} className="mr-1" />
+                             {zone.lat.toFixed(3)}, {zone.lng.toFixed(3)}
+                         </div>
+                    </div>
+                </div>
+            ))}
+        </div>
+        <div className="p-4 bg-blue-50 border-t border-gray-100">
+             <div className="flex items-start">
+                 <AlertCircle size={16} className="text-blue-600 mr-2 mt-0.5" />
+                 <p className="text-xs text-blue-800">
+                     <strong>Nota Técnica:</strong> La proyección hexagonal utiliza coordenadas geodésicas reales. Las capas permiten filtrar entre "Calor Electoral" y "Ubicación Territorial".
+                 </p>
+             </div>
+        </div>
       </div>
     </div>
   );
@@ -687,7 +688,7 @@ const App = () => {
           />
           <SidebarItem 
             icon={MapIcon} 
-            label="Teselación Mapa (Z)" 
+            label="Mapa Geoespacial (Z)" 
             active={activeTab === 'map'} 
             onClick={() => setActiveTab('map')} 
           />
@@ -718,7 +719,7 @@ const App = () => {
                 {activeTab === 'dashboard' && 'Panel de Control: Estrategia 2026'}
                 {activeTab === 'legislative' && 'Inteligencia Legislativa: Perfil Ex-Congresista'}
                 {activeTab === 'analysis' && 'Fase 1: Diagnóstico de Electorado'}
-                {activeTab === 'map' && 'Fase 2: Inteligencia Geoespacial (Teselación)'}
+                {activeTab === 'map' && 'Fase 2: Inteligencia Geoespacial (Real)'}
                 {activeTab === 'reports' && 'Fase 3: Proyección y Comando'}
             </h2>
             <div className="flex items-center space-x-4">
@@ -748,17 +749,17 @@ const App = () => {
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
                         <div className="bg-gradient-to-br from-blue-900 to-blue-800 rounded-2xl p-8 text-white shadow-lg relative overflow-hidden group cursor-pointer" onClick={() => setActiveTab('map')}>
                             <div className="relative z-10">
-                                <h3 className="text-2xl font-bold mb-2">Teselación Geoespacial</h3>
+                                <h3 className="text-2xl font-bold mb-2">Mapa Geoespacial Real</h3>
                                 <p className="text-blue-200 mb-6 max-w-md">
-                                    Visualice las zonas estratégicas para recolectar los 40,000 votos necesarios.
+                                    Visualice las zonas estratégicas sobre el mapa real de Medellín y Bello, con capas interactivas.
                                 </p>
                                 <button 
                                     className="bg-white text-blue-900 px-6 py-2 rounded-lg font-bold text-sm hover:bg-blue-50 transition-colors flex items-center"
                                 >
-                                    Ver Mapa Estratégico <ChevronRight size={16} className="ml-2" />
+                                    Abrir Mapa Interactivo <ChevronRight size={16} className="ml-2" />
                                 </button>
                             </div>
-                            <Hexagon className="absolute -bottom-8 -right-8 text-blue-700 opacity-20 group-hover:scale-110 transition-transform duration-500" size={200} />
+                            <MapPin className="absolute -bottom-8 -right-8 text-blue-700 opacity-20 group-hover:scale-110 transition-transform duration-500" size={200} />
                         </div>
 
                         <div className="bg-white rounded-2xl p-8 shadow-sm border border-gray-100 flex flex-col justify-center">
@@ -798,7 +799,7 @@ const App = () => {
             
             {activeTab === 'legislative' && <LegislativeView />}
 
-            {activeTab === 'map' && <GeoAnalysisView zones={INITIAL_ZONES} activeSegments={segments} />}
+            {activeTab === 'map' && <RealMapView zones={INITIAL_ZONES} activeSegments={segments} />}
             
             {activeTab === 'reports' && <ReportsView zones={INITIAL_ZONES} />}
         </div>
