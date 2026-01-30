@@ -10,24 +10,46 @@ import {
   FileText, 
   ChevronRight, 
   Settings,
-  Layers,
-  PieChart,
-  ShieldAlert,
-  Menu,
-  Share2,
-  Download,
-  Globe,
-  BookOpen,
-  TrendingUp,
-  MessageCircle,
-  CheckCircle,
-  Copy,
-  FileCheck,
-  Hexagon,
-  Vote,
-  AlertCircle,
-  MapPin
+  Layers, 
+  PieChart, 
+  ShieldAlert, 
+  Menu, 
+  Share2, 
+  Download, 
+  Globe, 
+  BookOpen, 
+  TrendingUp, 
+  MessageCircle, 
+  CheckCircle, 
+  Copy, 
+  FileCheck, 
+  Hexagon, 
+  Vote, 
+  AlertCircle, 
+  MapPin,
+  Wand2,
+  Play,
+  RefreshCw,
+  Sliders,
+  Zap,
+  CheckSquare,
+  Square
 } from 'lucide-react';
+
+// --- Leaflet Icon Fix ---
+// This is necessary because Leaflet's default icon paths often break in bundlers/React
+const fixLeafletIcons = () => {
+  try {
+    delete (L.Icon.Default.prototype as any)._getIconUrl;
+    L.Icon.Default.mergeOptions({
+      iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
+      iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
+      shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
+    });
+  } catch (e) {
+    console.warn("Leaflet icon fix failed", e);
+  }
+};
 
 // --- Types & Interfaces ---
 
@@ -55,6 +77,13 @@ interface WebMention {
   date: string;
   snippet: string;
   sentiment: 'positive' | 'neutral' | 'negative';
+}
+
+interface SimulationParams {
+    partyStrength: number; // Multiplier (e.g., 1.0, 1.2)
+    turnoutFactor: number; // Multiplier
+    competitorImpact: number; // Negative multiplier
+    focusArea: 'All' | 'Bello' | 'Medellín';
 }
 
 // --- Constants (Political Scenario) ---
@@ -245,25 +274,101 @@ const DiagnosisView = ({ segments, toggleSegment }: { segments: Segment[], toggl
 
 // --- Real Leaflet Map View ---
 
-const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegments: Segment[] }) => {
+const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData[], activeSegments: Segment[], toggleSegment: (id: string) => void }) => {
   const mapContainer = useRef(null);
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroups = useRef<{ [key: string]: L.LayerGroup }>({});
+  
+  // --- Simulation State ---
+  const [simParams, setSimParams] = useState<SimulationParams>({
+      partyStrength: 1.0,
+      turnoutFactor: 1.0,
+      competitorImpact: 0,
+      focusArea: 'All'
+  });
+  
+  const [promptText, setPromptText] = useState("");
+  const [wizardOpen, setWizardOpen] = useState(true);
 
+  // --- Projection Logic ---
   const processedZones = useMemo(() => {
     const avgWeight = activeSegments.filter(s => s.active).reduce((acc, curr) => acc + curr.weight, 0) / (activeSegments.filter(s => s.active).length || 1);
     
     return zones.map(zone => {
-      const opportunityIndex = (zone.demographicDensity * avgWeight) * (zone.historicalSupport + 0.3); 
-      return { ...zone, opportunityIndex: Math.min(opportunityIndex, 1) };
+      // Logic: Start with base density * segment interest
+      let baseIndex = (zone.demographicDensity * avgWeight);
+      
+      // Apply Focus Area Filter (Soft filter)
+      if (simParams.focusArea !== 'All' && zone.municipality !== simParams.focusArea) {
+          baseIndex = baseIndex * 0.5; // Reduce relevance of non-focus areas
+      } else if (simParams.focusArea !== 'All') {
+          baseIndex = baseIndex * 1.2; // Boost focus area
+      }
+
+      // Apply Simulation Multipliers
+      // Party Strength affects Historical Support efficiency
+      const adjustedSupport = Math.min(zone.historicalSupport * simParams.partyStrength, 1);
+      
+      // Turnout Factor affects Demographic Density efficiency
+      const adjustedDensity = Math.min(baseIndex * simParams.turnoutFactor, 1);
+      
+      // Competitor Impact reduces overall opportunity
+      const competitorFactor = 1 - simParams.competitorImpact;
+
+      const opportunityIndex = (adjustedDensity * 0.6 + adjustedSupport * 0.4) * competitorFactor;
+
+      // Estimate Votes: (Population * TurnoutRate) * OpportunityIndex * (CaptureRate ~ 0.15)
+      const estimatedVotes = Math.round(zone.population * 0.45 * opportunityIndex * 0.15);
+
+      return { 
+          ...zone, 
+          opportunityIndex: Math.min(opportunityIndex, 1),
+          estimatedVotes
+      };
     }).sort((a, b) => b.opportunityIndex - a.opportunityIndex);
-  }, [zones, activeSegments]);
+  }, [zones, activeSegments, simParams]);
+
+  // Aggregate Total Projected Votes
+  const totalProjectedVotes = useMemo(() => {
+      return processedZones.reduce((acc, z) => acc + z.estimatedVotes, 0);
+  }, [processedZones]);
+
+  // --- Wizard Logic ---
+  const executeWizardPrompt = (preset?: string) => {
+      const text = preset || promptText.toLowerCase();
+      let newParams = { ...simParams };
+
+      if (text.includes("crisis") || text.includes("caída")) {
+          newParams.partyStrength = 0.8; // -20%
+          newParams.competitorImpact = 0.15; // +15% impact
+          alert("Escenario Activado: Gestión de Crisis (-20% Imagen)");
+      } else if (text.includes("optimista") || text.includes("ola")) {
+          newParams.partyStrength = 1.25; // +25%
+          newParams.turnoutFactor = 1.1; // +10% turnout
+          alert("Escenario Activado: Ola de Opinión (+25% Imagen)");
+      } else if (text.includes("bello") || text.includes("norte")) {
+          newParams.focusArea = 'Bello';
+          newParams.turnoutFactor = 1.15; // Focused effort
+          alert("Escenario Activado: Fortaleza Bello (Prioridad Norte)");
+      } else if (text.includes("reset") || text.includes("reiniciar")) {
+           newParams = { partyStrength: 1.0, turnoutFactor: 1.0, competitorImpact: 0, focusArea: 'All' };
+      } else {
+          // Fallback generic boost if keywords match loosely
+          newParams.turnoutFactor = 1.05;
+      }
+      
+      setSimParams(newParams);
+  };
+
 
   useEffect(() => {
+    // 1. Run Icon Fix once
+    fixLeafletIcons();
+
     if (!mapContainer.current) return;
     if (mapInstance.current) return; // Initialize once
 
-    // Initialize Map
+    // 2. Initialize Map
     const map = L.map(mapContainer.current).setView([6.2800, -75.5600], 12); // Centered between Bello and Medellin
     mapInstance.current = map;
 
@@ -287,22 +392,7 @@ const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegme
 
     // Add Layer Control
     L.control.layers(null, layerGroups.current, { collapsed: false }).addTo(map);
-
-    // Add Legend (Custom Control)
-    const legend = new L.Control({ position: 'bottomright' });
-    legend.onAdd = function () {
-        const div = L.DomUtil.create('div', 'info legend bg-white p-3 rounded shadow-lg text-xs');
-        div.innerHTML = `
-            <h4 class="font-bold mb-1">Índice de Oportunidad</h4>
-            <div class="flex items-center mb-1"><span style="background:#dc2626; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Alta (>80%)</div>
-            <div class="flex items-center mb-1"><span style="background:#f97316; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Media-Alta (>60%)</div>
-            <div class="flex items-center mb-1"><span style="background:#facc15; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Media (>40%)</div>
-            <div class="flex items-center"><span style="background:#93c5fd; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Baja (<40%)</div>
-        `;
-        return div;
-    };
-    legend.addTo(map);
-
+    
     return () => {
         if(mapInstance.current) {
             mapInstance.current.remove();
@@ -336,12 +426,16 @@ const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegme
         });
         
         const popupContent = `
-            <div class="text-sm font-sans">
+            <div class="text-sm font-sans min-w-[200px]">
                 <h3 class="font-bold text-gray-800 border-b pb-1 mb-1">${zone.name}</h3>
-                <p class="mb-0"><strong>Munia:</strong> ${zone.municipality}</p>
-                <p class="mb-0"><strong>Población:</strong> ${zone.population.toLocaleString()}</p>
-                <p class="mb-0"><strong>Afinidad:</strong> ${(zone.opportunityIndex * 100).toFixed(0)}%</p>
-                <div class="mt-2 text-xs text-blue-600 font-semibold">Meta Votos: ${(zone.population * 0.15).toLocaleString()}</div>
+                <div class="grid grid-cols-2 gap-2 text-xs">
+                    <p class="mb-0"><strong>Población:</strong></p> <p>${zone.population.toLocaleString()}</p>
+                    <p class="mb-0"><strong>Afinidad:</strong></p> <p>${(zone.opportunityIndex * 100).toFixed(0)}%</p>
+                </div>
+                <div class="mt-2 pt-2 border-t border-gray-100">
+                    <div class="text-xs text-gray-500">Proyección Votos (Sim):</div>
+                    <div class="text-lg font-bold text-blue-700">${zone.estimatedVotes.toLocaleString()}</div>
+                </div>
             </div>
         `;
         polygon.bindPopup(popupContent);
@@ -350,13 +444,13 @@ const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegme
         // 2. Critical Points Layer (Markers for top zones)
         if (zone.opportunityIndex > 0.6) {
              const marker = L.circleMarker([zone.lat, zone.lng], {
-                radius: 4,
+                radius: 6,
                 fillColor: '#1e3a8a', // Blue-900
                 color: '#fff',
-                weight: 1,
+                weight: 2,
                 fillOpacity: 1
              });
-             marker.bindTooltip(`${zone.name}`, { permanent: false, direction: 'top' });
+             marker.bindTooltip(`<b>${zone.estimatedVotes}</b><br>${zone.name}`, { permanent: false, direction: 'top' });
              criticalLayer.addLayer(marker);
         }
 
@@ -364,7 +458,7 @@ const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegme
         const circle = L.circle([zone.lat, zone.lng], {
             color: '#6b7280',
             fillColor: '#9ca3af',
-            fillOpacity: 0.1,
+            fillOpacity: 0.05,
             radius: 800 // Meters
         });
         territoryLayer.addLayer(circle);
@@ -374,272 +468,292 @@ const RealMapView = ({ zones, activeSegments }: { zones: ZoneData[], activeSegme
   }, [processedZones]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 h-full relative">
       {/* Map Container */}
-      <div className="lg:col-span-2 bg-white p-2 rounded-xl shadow-sm border border-gray-100 flex flex-col relative h-[600px] lg:h-auto">
+      <div className="lg:col-span-2 bg-white p-2 rounded-xl shadow-sm border border-gray-100 flex flex-col relative h-[600px]">
          <div ref={mapContainer} className="flex-1 z-0 rounded-lg overflow-hidden" />
-         <div className="absolute top-4 left-14 z-[400] bg-white/90 backdrop-blur px-3 py-1 rounded shadow text-xs font-bold text-gray-700 pointer-events-none">
-            Mapa Real: Medellín & Bello
-         </div>
-      </div>
+         
+         {/* Wizard Overlay */}
+         <div className={`absolute bottom-6 left-6 right-6 lg:right-auto lg:w-96 z-[400] transition-all duration-300 ${wizardOpen ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-10 pointer-events-none'}`}>
+             <div className="bg-white/95 backdrop-blur-md rounded-xl shadow-2xl border border-blue-100 p-4">
+                <div className="flex justify-between items-center mb-3 border-b border-gray-100 pb-2">
+                    <h3 className="text-sm font-bold text-blue-900 flex items-center">
+                        <Wand2 size={16} className="mr-2 text-blue-600" />
+                        Asistente de Proyección (Wizard)
+                    </h3>
+                    <button onClick={() => setWizardOpen(false)} className="text-gray-400 hover:text-gray-600"><ChevronRight className="rotate-90" size={16} /></button>
+                </div>
 
-      {/* Strategic Detail Panel */}
-      <div className="bg-white p-0 rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[600px] lg:h-auto">
-        <div className="p-5 border-b border-gray-100 bg-gray-50">
-            <h3 className="font-bold text-gray-800 flex items-center">
-                <Layers className="mr-2 text-blue-600" size={18} />
-                Capas de Inteligencia
-            </h3>
-            <p className="text-xs text-gray-500">Active las capas en el mapa para ver detalles.</p>
-        </div>
-        <div className="flex-1 overflow-y-auto p-2">
-            {processedZones.slice(0, 10).map((zone, idx) => (
-                <div key={zone.id} className="flex items-center p-3 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-0 transition-colors">
-                    <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs mr-3">
-                        {idx + 1}
-                    </div>
-                    <div className="flex-1">
-                        <div className="flex justify-between">
-                            <h4 className="text-sm font-semibold text-gray-800">{zone.name}</h4>
-                            <span className="text-xs font-bold" style={{ color: getColor(zone.opportunityIndex) }}>
-                                {(zone.opportunityIndex * 100).toFixed(1)}%
-                            </span>
-                        </div>
-                         <div className="flex items-center text-xs text-gray-400 mt-1">
-                             <MapPin size={10} className="mr-1" />
-                             {zone.lat.toFixed(3)}, {zone.lng.toFixed(3)}
-                         </div>
+                <div className="mb-4">
+                    <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">Ejecutar Simulación</label>
+                    <div className="flex space-x-2">
+                        <input 
+                            type="text" 
+                            placeholder="Ej: 'Crisis de imagen', 'Foco Bello'..." 
+                            className="flex-1 text-xs border border-gray-300 rounded-lg px-3 py-2 focus:ring-2 focus:ring-blue-500 outline-none"
+                            value={promptText}
+                            onChange={(e) => setPromptText(e.target.value)}
+                            onKeyDown={(e) => e.key === 'Enter' && executeWizardPrompt()}
+                        />
+                        <button 
+                            onClick={() => executeWizardPrompt()}
+                            className="bg-blue-600 text-white p-2 rounded-lg hover:bg-blue-700 transition-colors"
+                        >
+                            <Play size={16} />
+                        </button>
                     </div>
                 </div>
-            ))}
-        </div>
-        <div className="p-4 bg-blue-50 border-t border-gray-100">
-             <div className="flex items-start">
-                 <AlertCircle size={16} className="text-blue-600 mr-2 mt-0.5" />
-                 <p className="text-xs text-blue-800">
-                     <strong>Nota Técnica:</strong> La proyección hexagonal utiliza coordenadas geodésicas reales. Las capas permiten filtrar entre "Calor Electoral" y "Ubicación Territorial".
-                 </p>
+
+                <div className="space-y-2">
+                    <label className="text-[10px] uppercase font-bold text-gray-500 mb-1 block">Escenarios Rápidos</label>
+                    <div className="flex flex-wrap gap-2">
+                        <button onClick={() => executeWizardPrompt('optimista')} className="text-xs bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded-full hover:bg-green-100 transition-colors">Ola Optimista</button>
+                        <button onClick={() => executeWizardPrompt('crisis')} className="text-xs bg-red-50 text-red-700 border border-red-200 px-2 py-1 rounded-full hover:bg-red-100 transition-colors">Crisis (-20%)</button>
+                        <button onClick={() => executeWizardPrompt('bello')} className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-2 py-1 rounded-full hover:bg-blue-100 transition-colors">Fortaleza Bello</button>
+                        <button onClick={() => executeWizardPrompt('reset')} className="text-xs bg-gray-100 text-gray-600 border border-gray-200 px-2 py-1 rounded-full hover:bg-gray-200 transition-colors flex items-center"><RefreshCw size={10} className="mr-1"/> Reset</button>
+                    </div>
+                </div>
+
+                <div className="mt-4 pt-3 border-t border-gray-100 bg-blue-50/50 -mx-4 -mb-4 p-4 rounded-b-xl">
+                    <div className="flex justify-between items-center">
+                        <span className="text-xs font-semibold text-gray-600">Proyección Total:</span>
+                        <div className="text-right">
+                             <span className={`text-xl font-bold ${totalProjectedVotes >= CANDIDATE_SAFE_THRESHOLD ? 'text-green-600' : 'text-red-600'}`}>
+                                 {totalProjectedVotes.toLocaleString()}
+                             </span>
+                             <span className="text-[10px] text-gray-400 block">Meta: {CANDIDATE_SAFE_THRESHOLD.toLocaleString()}</span>
+                        </div>
+                    </div>
+                    {/* Mini Progress Bar */}
+                    <div className="w-full bg-gray-200 h-1.5 rounded-full mt-2 overflow-hidden">
+                        <div 
+                            className={`h-full ${totalProjectedVotes >= CANDIDATE_SAFE_THRESHOLD ? 'bg-green-500' : 'bg-red-500'} transition-all duration-500`} 
+                            style={{ width: `${Math.min((totalProjectedVotes / CANDIDATE_SAFE_THRESHOLD) * 100, 100)}%` }}
+                        ></div>
+                    </div>
+                </div>
              </div>
+         </div>
+         
+         {!wizardOpen && (
+             <button 
+                onClick={() => setWizardOpen(true)}
+                className="absolute bottom-6 left-6 z-[400] bg-blue-600 text-white p-3 rounded-full shadow-lg hover:bg-blue-700 transition-all hover:scale-110"
+             >
+                 <Wand2 size={24} />
+             </button>
+         )}
+
+      </div>
+
+      {/* Strategic Detail Panel & Manual Controls */}
+      <div className="bg-white p-0 rounded-xl shadow-sm border border-gray-100 overflow-hidden flex flex-col h-[600px] lg:h-auto">
+        <div className="p-5 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+            <div>
+                <h3 className="font-bold text-gray-800 flex items-center">
+                    <Sliders className="mr-2 text-blue-600" size={18} />
+                    Variables (X/Y)
+                </h3>
+                <p className="text-xs text-gray-500">Ajuste manual de parámetros.</p>
+            </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto">
+             {/* Manual Sliders */}
+            <div className="p-5 space-y-5 border-b border-gray-100">
+                <div>
+                    <div className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                        <span>Fuerza de Marca (X)</span>
+                        <span className="text-blue-600">{(simParams.partyStrength * 100).toFixed(0)}%</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        min="0.5" 
+                        max="1.5" 
+                        step="0.1"
+                        value={simParams.partyStrength}
+                        onChange={(e) => setSimParams({...simParams, partyStrength: parseFloat(e.target.value)})}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    />
+                </div>
+                <div>
+                    <div className="flex justify-between text-xs font-semibold text-gray-700 mb-2">
+                        <span>Movilización Demografía (Y)</span>
+                        <span className="text-purple-600">{(simParams.turnoutFactor * 100).toFixed(0)}%</span>
+                    </div>
+                    <input 
+                        type="range" 
+                        min="0.5" 
+                        max="1.5" 
+                        step="0.1"
+                        value={simParams.turnoutFactor}
+                        onChange={(e) => setSimParams({...simParams, turnoutFactor: parseFloat(e.target.value)})}
+                        className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                    />
+                </div>
+            </div>
+
+            {/* Micro-Segmentation Toggle List */}
+            <div className="p-5 border-b border-gray-100">
+                 <h4 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-3">Micro-Segmentación Activa</h4>
+                 <div className="space-y-2">
+                    {activeSegments.map(seg => (
+                        <div 
+                            key={seg.id}
+                            onClick={() => toggleSegment(seg.id)}
+                            className="flex items-center justify-between cursor-pointer group"
+                        >
+                            <div className="flex items-center space-x-2">
+                                {seg.active ? (
+                                    <CheckSquare size={16} className="text-blue-600" />
+                                ) : (
+                                    <Square size={16} className="text-gray-300 group-hover:text-gray-400" />
+                                )}
+                                <span className={`text-xs ${seg.active ? 'text-gray-800 font-medium' : 'text-gray-400'}`}>
+                                    {seg.name}
+                                </span>
+                            </div>
+                            <span className="text-[10px] text-gray-400 font-mono">x{seg.weight}</span>
+                        </div>
+                    ))}
+                 </div>
+            </div>
+
+            <div className="p-3 bg-gray-50 text-xs font-bold text-gray-500 uppercase tracking-wider">
+                Top Zonas (Impacto Simulado)
+            </div>
+
+            <div className="p-2">
+                {processedZones.slice(0, 10).map((zone, idx) => (
+                    <div key={zone.id} className="flex items-center p-3 hover:bg-gray-50 rounded-lg border-b border-gray-50 last:border-0 transition-colors group cursor-pointer">
+                        <div className="w-8 h-8 rounded-full bg-blue-100 text-blue-700 flex items-center justify-center font-bold text-xs mr-3 group-hover:bg-blue-600 group-hover:text-white transition-colors">
+                            {idx + 1}
+                        </div>
+                        <div className="flex-1">
+                            <div className="flex justify-between">
+                                <h4 className="text-sm font-semibold text-gray-800">{zone.name}</h4>
+                                <span className="text-xs font-bold" style={{ color: getColor(zone.opportunityIndex) }}>
+                                    {zone.estimatedVotes.toLocaleString()} <span className="text-[10px] text-gray-400 font-normal">votos</span>
+                                </span>
+                            </div>
+                            <div className="flex items-center text-xs text-gray-400 mt-1 justify-between">
+                                <div className="flex items-center">
+                                    <Zap size={10} className="mr-1 text-yellow-500" />
+                                    Idx: {(zone.opportunityIndex * 100).toFixed(0)}
+                                </div>
+                                <span className="text-[10px] bg-gray-100 px-1.5 rounded">{zone.municipality}</span>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
         </div>
       </div>
     </div>
   );
 };
 
+// --- Missing Views Implementation ---
+
 const LegislativeView = () => {
-    return (
-        <div className="space-y-6">
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                <MetricCard title="Leyes Impulsadas" value={LEGISLATIVE_STATS.laws} subtext="Periodo Anterior (Cámara)" trend={2} icon={BookOpen} color="green" />
-                <MetricCard title="Debates Nacionales" value={LEGISLATIVE_STATS.debates} subtext="Control Político Activo" trend={15} icon={MessageCircle} color="blue" />
-                <MetricCard title="Asistencia Plenaria" value={`${LEGISLATIVE_STATS.attendance}%`} subtext="Cumplimiento Excelente" icon={CheckCircle} color="purple" />
-            </div>
+  return (
+    <div className="space-y-6">
+       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+             <div className="text-gray-500 text-xs font-bold uppercase mb-1">Leyes Aprobadas</div>
+             <div className="text-3xl font-bold text-blue-900">{LEGISLATIVE_STATS.laws}</div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+             <div className="text-gray-500 text-xs font-bold uppercase mb-1">Debates Control</div>
+             <div className="text-3xl font-bold text-blue-900">{LEGISLATIVE_STATS.debates}</div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+             <div className="text-gray-500 text-xs font-bold uppercase mb-1">Asistencia</div>
+             <div className="text-3xl font-bold text-green-600">{LEGISLATIVE_STATS.attendance}%</div>
+          </div>
+          <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
+             <div className="text-gray-500 text-xs font-bold uppercase mb-1">Comisiones</div>
+             <div className="text-sm font-medium text-gray-700">{LEGISLATIVE_STATS.commissions.length} Principales</div>
+          </div>
+       </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                {/* Web Crawler Widget */}
-                <div className="bg-white rounded-xl shadow-sm border border-gray-100 flex flex-col h-96">
-                    <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50 rounded-t-xl">
-                        <h3 className="font-bold text-gray-800 flex items-center">
-                            <Globe className="mr-2 text-blue-500" size={20} />
-                            Inteligencia Web (Campaña 2026)
-                        </h3>
-                        <div className="flex items-center space-x-2">
-                             <span className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></span>
-                             <span className="text-xs text-gray-500 font-mono">LIVE FEED</span>
-                        </div>
-                    </div>
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-gray-50/50">
-                        {WEB_MENTIONS.map(mention => (
-                            <div key={mention.id} className="bg-white p-4 rounded-lg border border-gray-200 shadow-sm hover:shadow-md transition-shadow">
-                                <div className="flex justify-between items-start mb-2">
-                                    <span className="text-xs font-bold text-blue-700 bg-blue-50 px-2 py-1 rounded">{mention.source}</span>
-                                    <span className="text-xs text-gray-400">{mention.date}</span>
-                                </div>
-                                <p className="text-sm text-gray-700 italic mb-2">"{mention.snippet}"</p>
-                                <div className="flex items-center space-x-2">
-                                    <div className={`w-2 h-2 rounded-full ${mention.sentiment === 'positive' ? 'bg-green-500' : mention.sentiment === 'neutral' ? 'bg-gray-400' : 'bg-red-500'}`}></div>
-                                    <span className="text-xs text-gray-500 capitalize">{mention.sentiment}</span>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
+       <div className="bg-white rounded-xl border border-gray-100 shadow-sm overflow-hidden">
+          <div className="p-6 border-b border-gray-100">
+             <h3 className="font-bold text-gray-800">Menciones en Medios y Redes</h3>
+          </div>
+          <div className="divide-y divide-gray-100">
+             {WEB_MENTIONS.map((mention) => (
+                <div key={mention.id} className="p-4 hover:bg-gray-50 transition-colors">
+                   <div className="flex justify-between items-start mb-2">
+                      <span className="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">{mention.source}</span>
+                      <span className="text-xs text-gray-400">{mention.date}</span>
+                   </div>
+                   <p className="text-sm text-gray-700 mb-2">"{mention.snippet}"</p>
+                   <div className="flex items-center">
+                      <span className={`w-2 h-2 rounded-full mr-2 ${mention.sentiment === 'positive' ? 'bg-green-500' : mention.sentiment === 'negative' ? 'bg-red-500' : 'bg-gray-400'}`}></span>
+                      <span className="text-xs font-medium capitalize text-gray-500">{mention.sentiment}</span>
+                   </div>
                 </div>
-
-                 {/* Electoral Growth Chart Placeholder */}
-                 <div className="bg-white rounded-xl shadow-sm border border-gray-100 p-6">
-                    <h3 className="font-bold text-gray-800 mb-6 flex items-center">
-                        <TrendingUp className="mr-2 text-purple-600" size={20} />
-                        Proyección Curul Cámara 2026
-                    </h3>
-                    <div className="h-64 flex items-end justify-around pb-6 border-b border-gray-100">
-                        <div className="flex flex-col items-center group">
-                            <div className="text-xs font-bold text-gray-600 mb-1 opacity-0 group-hover:opacity-100 transition-opacity">22k</div>
-                            <div className="w-16 bg-gray-300 h-24 rounded-t-lg relative hover:bg-gray-400 transition-colors"></div>
-                            <div className="mt-2 text-xs font-semibold text-gray-500">2014 (Asamb)</div>
-                        </div>
-                        <div className="flex flex-col items-center group">
-                            <div className="text-xs font-bold text-gray-600 mb-1 opacity-0 group-hover:opacity-100 transition-opacity">45k</div>
-                            <div className="w-16 bg-purple-400 h-40 rounded-t-lg relative hover:bg-purple-500 transition-colors"></div>
-                            <div className="mt-2 text-xs font-semibold text-gray-500">2018 (Cámara)</div>
-                        </div>
-                         <div className="flex flex-col items-center group">
-                            <div className="text-xs font-bold text-blue-600 mb-1 opacity-100">40k (Min)</div>
-                            <div className="w-16 bg-blue-600 h-56 rounded-t-lg relative shadow-lg shadow-blue-200">
-                                <div className="absolute top-0 left-0 w-full h-full bg-white opacity-20 bg-[url('https://www.transparenttextures.com/patterns/diagonal-stripes.png')]"></div>
-                                {/* Threshold Line */}
-                                <div className="absolute top-0 w-full border-t-2 border-red-500 -mt-0"></div>
-                            </div>
-                            <div className="mt-2 text-xs font-bold text-blue-700">2026</div>
-                        </div>
-                    </div>
-                    <div className="mt-4 text-center">
-                        <p className="text-sm text-gray-600">Modelo: Recuperación de Curul + Expansión en Bello.</p>
-                    </div>
-                 </div>
-            </div>
-        </div>
-    )
-}
+             ))}
+          </div>
+       </div>
+    </div>
+  );
+};
 
 const ReportsView = ({ zones }: { zones: ZoneData[] }) => {
-    const totalPotential = zones.reduce((acc, z) => acc + (z.population * 0.45), 0); // Assuming 45% voter turnout
-    
-    // Updated Logic for 40k Threshold
-    const currentProjection = 32500; // Simulated current consolidated votes
-    const projectionPercentage = (currentProjection / CANDIDATE_SAFE_THRESHOLD) * 100;
-
-    const [isSharing, setIsSharing] = useState(false);
-    const [isExporting, setIsExporting] = useState(false);
-    const [shareUrl, setShareUrl] = useState('');
-
-    const handleShare = () => {
-        setIsSharing(true);
-        // Simulate link generation
-        setTimeout(() => {
-            const mockUrl = `https://yulieth-sanchez-2026.app/report/${Math.random().toString(36).substring(7)}`;
-            setShareUrl(mockUrl);
-            navigator.clipboard.writeText(mockUrl);
-            setTimeout(() => setIsSharing(false), 2000);
-        }, 800);
-    };
-
-    const handleExport = () => {
-        setIsExporting(true);
-        // Simulate PDF generation
-        setTimeout(() => {
-            setIsExporting(false);
-            alert("Dossier Estratégico 2026 generado. Descargando...");
-        }, 1500);
-    };
-
-    return (
-        <div className="space-y-6">
-            {/* Toolbar */}
-            <div className="bg-white p-4 rounded-xl shadow-sm border border-gray-100 flex justify-between items-center">
-                <div>
-                    <h3 className="font-bold text-gray-800 text-sm">Centro de Comando 2026</h3>
-                    <p className="text-xs text-gray-400">Objetivo: Cámara de Representantes</p>
-                </div>
-                <div className="flex space-x-3">
-                    <button 
-                        onClick={handleShare}
-                        disabled={isSharing}
-                        className="flex items-center px-4 py-2 text-sm font-medium text-blue-700 bg-blue-50 rounded-lg hover:bg-blue-100 transition-colors disabled:opacity-50"
-                    >
-                        {isSharing ? (
-                            <span className="flex items-center"><CheckCircle size={16} className="mr-2" /> Link Copiado</span>
-                        ) : (
-                            <>
-                                <Share2 size={16} className="mr-2" />
-                                Compartir
-                            </>
-                        )}
-                    </button>
-                    <button 
-                        onClick={handleExport}
-                        disabled={isExporting}
-                        className="flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors disabled:bg-blue-400"
-                    >
-                        {isExporting ? (
-                             <span className="flex items-center">Generando...</span>
-                        ) : (
-                            <>
-                                <Download size={16} className="mr-2" />
-                                Exportar Dossier
-                            </>
-                        )}
-                    </button>
-                </div>
-            </div>
-
-            {/* Content */}
-             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <h3 className="font-bold text-gray-800 mb-4 flex items-center justify-between">
-                        <span className="flex items-center"><PieChart className="mr-2 text-green-600" size={20} /> Proyección Votos</span>
-                        <span className="text-xs bg-gray-100 px-2 py-1 rounded text-gray-500">{PARTY_NAME}</span>
-                    </h3>
-                    
-                    <div className="relative pt-6 pb-2">
-                        <div className="flex justify-between text-xs mb-2">
-                            <span className="font-semibold text-gray-500">Actual: {currentProjection.toLocaleString()}</span>
-                            <span className="font-bold text-red-600">Meta Segura: {CANDIDATE_SAFE_THRESHOLD.toLocaleString()}</span>
-                        </div>
-                        
-                        {/* Threshold Bar */}
-                        <div className="h-4 w-full bg-gray-200 rounded-full overflow-hidden relative">
-                            <div 
-                                className={`h-full rounded-full transition-all duration-1000 ${projectionPercentage >= 100 ? 'bg-green-500' : 'bg-yellow-400'}`} 
-                                style={{ width: `${Math.min(projectionPercentage, 100)}%` }}
-                            ></div>
-                            {/* Marker for 40k */}
-                            <div className="absolute top-0 bottom-0 border-r-2 border-red-500 border-dashed" style={{ left: '80%' }}></div>
-                        </div>
-                        <p className="text-center text-xs text-gray-400 mt-2">La línea roja indica el umbral mínimo para pelear la 5ta curul.</p>
-                    </div>
-
-                    <div className="mt-6 grid grid-cols-3 gap-2 text-center bg-gray-50 p-4 rounded-lg">
-                         <div>
-                            <span className="block text-xs text-gray-500">Meta Partido</span>
-                            <span className="font-bold text-blue-800 text-sm">500k</span>
-                        </div>
-                        <div>
-                            <span className="block text-xs text-gray-500">Curules</span>
-                            <span className="font-bold text-blue-800 text-sm">5</span>
-                        </div>
-                        <div>
-                            <span className="block text-xs text-gray-500">Umbral Ind.</span>
-                            <span className="font-bold text-red-600 text-sm">40k</span>
-                        </div>
-                    </div>
-                </div>
-
-                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
-                    <h3 className="font-bold text-gray-800 mb-4 flex items-center">
-                        <Layers className="mr-2 text-orange-600" size={20} />
-                        Mapa de Calor (Aporte a los 40k)
-                    </h3>
-                    <div className="space-y-4">
-                        {zones.slice(0, 5).map(z => (
-                            <div key={z.id}>
-                                <div className="flex justify-between text-sm mb-1">
-                                    <span className="text-gray-600">{z.name}</span>
-                                    <span className="font-medium text-gray-900">{((z.demographicDensity) * 100).toFixed(0)}% Eficiencia</span>
-                                </div>
-                                <div className="h-2 w-full bg-gray-100 rounded-full overflow-hidden">
-                                    <div className="h-full bg-orange-500 rounded-full" style={{ width: `${z.demographicDensity * 100}%` }}></div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                    <div className="mt-4 p-3 bg-blue-50 text-blue-800 text-xs rounded-lg">
-                        <p><strong>Estrategia:</strong> Concentrar esfuerzos en Bello para asegurar 25k votos base y completar 15k en Medellín Norte.</p>
-                    </div>
-                </div>
-             </div>
+  return (
+    <div className="space-y-6">
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+        <div className="flex justify-between items-center mb-6">
+           <div>
+              <h2 className="text-lg font-bold text-gray-800">Reporte de Territorios</h2>
+              <p className="text-sm text-gray-500">Listado consolidado de zonas estratégicas</p>
+           </div>
+           <button className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+              <Download size={16} />
+              <span>Exportar CSV</span>
+           </button>
         </div>
-    )
-}
+        
+        <div className="overflow-x-auto">
+           <table className="w-full text-left border-collapse">
+              <thead>
+                 <tr className="bg-gray-50 border-b border-gray-200">
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase">ID</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase">Zona / Barrio</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase">Municipio</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase text-right">Población</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase text-center">Apoyo Hist.</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase text-center">Densidad Y</th>
+                 </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                 {zones.map((zone) => (
+                    <tr key={zone.id} className="hover:bg-gray-50">
+                       <td className="py-3 px-4 text-sm font-mono text-gray-500">{zone.id.toUpperCase()}</td>
+                       <td className="py-3 px-4 text-sm font-medium text-gray-800">{zone.name}</td>
+                       <td className="py-3 px-4 text-sm text-gray-600">{zone.municipality}</td>
+                       <td className="py-3 px-4 text-sm text-gray-600 text-right">{zone.population.toLocaleString()}</td>
+                       <td className="py-3 px-4 text-sm text-center">
+                          <span className={`px-2 py-1 rounded-full text-xs font-bold ${zone.historicalSupport > 0.5 ? 'bg-green-100 text-green-700' : 'bg-yellow-100 text-yellow-700'}`}>
+                             {(zone.historicalSupport * 100).toFixed(0)}%
+                          </span>
+                       </td>
+                       <td className="py-3 px-4 text-sm text-center">
+                          <div className="w-full bg-gray-200 rounded-full h-1.5 max-w-[60px] mx-auto">
+                             <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${zone.demographicDensity * 100}%` }}></div>
+                          </div>
+                       </td>
+                    </tr>
+                 ))}
+              </tbody>
+           </table>
+        </div>
+      </div>
+    </div>
+  );
+};
 
 // --- Main App ---
 
@@ -799,7 +913,7 @@ const App = () => {
             
             {activeTab === 'legislative' && <LegislativeView />}
 
-            {activeTab === 'map' && <RealMapView zones={INITIAL_ZONES} activeSegments={segments} />}
+            {activeTab === 'map' && <RealMapView zones={INITIAL_ZONES} activeSegments={segments} toggleSegment={toggleSegment} />}
             
             {activeTab === 'reports' && <ReportsView zones={INITIAL_ZONES} />}
         </div>
