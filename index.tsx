@@ -33,11 +33,12 @@ import {
   Sliders,
   Zap,
   CheckSquare,
-  Square
+  Square,
+  Megaphone,
+  Eye
 } from 'lucide-react';
 
 // --- Leaflet Icon Fix ---
-// This is necessary because Leaflet's default icon paths often break in bundlers/React
 const fixLeafletIcons = () => {
   try {
     delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -58,10 +59,21 @@ interface ZoneData {
   name: string;
   municipality: 'Medellín' | 'Bello';
   population: number;
-  demographicDensity: number; // 0-1 (Density of Demography Y)
-  historicalSupport: number; // 0-1 (Support for Entity X)
+  demographicDensity: number; // Used to calculate Idx
+  historicalSupport: number; // Used to calculate Idx
   lat: number;
   lng: number;
+  targetAudience: string; // New field from report
+  strategicMessage: string; // New field from report
+}
+
+interface AdLocation {
+    id: string;
+    type: 'Valla' | 'Paradero' | 'Estación' | 'Pantalla';
+    locationName: string;
+    lat: number;
+    lng: number;
+    message: string;
 }
 
 interface Segment {
@@ -92,23 +104,82 @@ const PARTY_TOTAL_PROJECTION = 500000;
 const PARTY_SEATS_PROJECTION = 5;
 const CANDIDATE_SAFE_THRESHOLD = 40000;
 
-// --- Mock Data Generation (Geolocated) ---
+// --- Data Generation (Based on Strategic Report) ---
 
 const INITIAL_ZONES: ZoneData[] = [
-  // BELLO (High Priority)
-  { id: 'b-04', name: 'Bello - París', municipality: 'Bello', population: 65000, demographicDensity: 0.88, historicalSupport: 0.28, lat: 6.3308, lng: -75.5786 },
-  { id: 'b-01', name: 'Bello - Norte', municipality: 'Bello', population: 95000, demographicDensity: 0.82, historicalSupport: 0.48, lat: 6.3450, lng: -75.5550 },
-  { id: 'b-03', name: 'Bello - Niquía', municipality: 'Bello', population: 105000, demographicDensity: 0.78, historicalSupport: 0.35, lat: 6.3520, lng: -75.5420 },
-  { id: 'b-02', name: 'Bello - Centro', municipality: 'Bello', population: 110000, demographicDensity: 0.65, historicalSupport: 0.52, lat: 6.3350, lng: -75.5600 },
-  
-  // MEDELLÍN (Strategic Corridors)
-  { id: 'm-01', name: 'C1 - Popular', municipality: 'Medellín', population: 132000, demographicDensity: 0.75, historicalSupport: 0.45, lat: 6.2950, lng: -75.5450 },
-  { id: 'm-02', name: 'C2 - Santa Cruz', municipality: 'Medellín', population: 110000, demographicDensity: 0.68, historicalSupport: 0.38, lat: 6.2850, lng: -75.5550 },
-  { id: 'm-04', name: 'C4 - Aranjuez', municipality: 'Medellín', population: 140000, demographicDensity: 0.45, historicalSupport: 0.58, lat: 6.2750, lng: -75.5600 },
-  { id: 'm-03', name: 'C3 - Manrique', municipality: 'Medellín', population: 155000, demographicDensity: 0.55, historicalSupport: 0.62, lat: 6.2700, lng: -75.5400 },
-  { id: 'm-10', name: 'C10 - Candelaria', municipality: 'Medellín', population: 85000, demographicDensity: 0.35, historicalSupport: 0.25, lat: 6.2480, lng: -75.5700 },
-  { id: 'm-16', name: 'C16 - Belén', municipality: 'Medellín', population: 190000, demographicDensity: 0.65, historicalSupport: 0.55, lat: 6.2300, lng: -75.6000 },
-  { id: 'm-14', name: 'C14 - El Poblado', municipality: 'Medellín', population: 128000, demographicDensity: 0.15, historicalSupport: 0.85, lat: 6.2100, lng: -75.5700 },
+  { 
+      id: 'c-01', name: 'Comuna 1 - Popular', municipality: 'Medellín', population: 135000, 
+      demographicDensity: 0.95, historicalSupport: 0.55, lat: 6.2990, lng: -75.5450,
+      targetAudience: 'Mujeres Jóvenes (18-35) y Madres Jefas',
+      strategicMessage: 'Tu futuro no es un favor, es la ley. Matrícula Cero.'
+  },
+  { 
+      id: 'c-16', name: 'Comuna 16 - Belén', municipality: 'Medellín', population: 195000, 
+      demographicDensity: 0.75, historicalSupport: 0.75, lat: 6.2250, lng: -75.6000,
+      targetAudience: 'Clase Media Profesional / Opinión',
+      strategicMessage: 'Transparencia verificada. Consulta dónde invertimos.'
+  },
+  { 
+      id: 'c-03', name: 'Comuna 3 - Manrique', municipality: 'Medellín', population: 160000, 
+      demographicDensity: 0.85, historicalSupport: 0.60, lat: 6.2750, lng: -75.5480,
+      targetAudience: 'Transportadores e Informales',
+      strategicMessage: 'Defendemos tu bolsillo. Ni un peso más en el SOAT.'
+  },
+  { 
+      id: 'c-10', name: 'Comuna 10 - Centro', municipality: 'Medellín', population: 85000, 
+      demographicDensity: 0.60, historicalSupport: 0.40, lat: 6.2500, lng: -75.5700,
+      targetAudience: 'Pequeños Comerciantes',
+      strategicMessage: 'Menos trabas, más progreso. Economía Popular.'
+  },
+  { 
+      id: 'c-13', name: 'Comuna 13 - San Javier', municipality: 'Medellín', population: 140000, 
+      demographicDensity: 0.80, historicalSupport: 0.45, lat: 6.2550, lng: -75.6150,
+      targetAudience: 'Madres Cabeza de Familia y Artistas',
+      strategicMessage: 'Ley Panda: Salud mental protegida.'
+  },
+  { 
+      id: 'c-07', name: 'Comuna 7 - Robledo', municipality: 'Medellín', population: 170000, 
+      demographicDensity: 0.70, historicalSupport: 0.50, lat: 6.2800, lng: -75.5950,
+      targetAudience: 'Estudiantes Universitarios',
+      strategicMessage: 'Matrícula Cero y subsidios de transporte.'
+  },
+  { 
+      id: 'c-05', name: 'Comuna 5 - Castilla', municipality: 'Medellín', population: 150000, 
+      demographicDensity: 0.82, historicalSupport: 0.58, lat: 6.2950, lng: -75.5750,
+      targetAudience: 'Líderes Deportivos',
+      strategicMessage: 'Tasa Pro Deporte: Inversión social real.'
+  },
+  { 
+      id: 'c-12', name: 'Comuna 12 - La América', municipality: 'Medellín', population: 100000, 
+      demographicDensity: 0.65, historicalSupport: 0.70, lat: 6.2550, lng: -75.6050,
+      targetAudience: 'Reserva Activa / Fuerza Pública',
+      strategicMessage: 'Disciplina en el control público.'
+  },
+  { 
+      id: 'c-08', name: 'Comuna 8 - V. Hermosa', municipality: 'Medellín', population: 138000, 
+      demographicDensity: 0.78, historicalSupport: 0.48, lat: 6.2400, lng: -75.5500,
+      targetAudience: 'Víctimas del Conflicto',
+      strategicMessage: 'Derecho a la estabilización y empleo urbano.'
+  },
+  { 
+      id: 'c-04', name: 'Comuna 4 - Aranjuez', municipality: 'Medellín', population: 155000, 
+      demographicDensity: 0.88, historicalSupport: 0.62, lat: 6.2850, lng: -75.5600,
+      targetAudience: 'Trabajadores de Plataformas',
+      strategicMessage: 'Gestión eficiente por transporte digno.'
+  }
+];
+
+const AD_LOCATIONS: AdLocation[] = [
+    { id: 'ad1', type: 'Paradero', locationName: 'Entrada Santo Domingo Savio N°1', lat: 6.3010, lng: -75.5420, message: 'Tu futuro no es un favor.' },
+    { id: 'ad2', type: 'Estación', locationName: 'Estación Metrocable Sto Domingo', lat: 6.2980, lng: -75.5440, message: 'Matrícula Cero.' },
+    { id: 'ad3', type: 'Pantalla', locationName: 'Metroplús Gardel', lat: 6.2760, lng: -75.5500, message: 'SOAT Justo.' },
+    { id: 'ad4', type: 'Valla', locationName: 'Cll 30 con Cr 82C (Los Alpes)', lat: 6.2280, lng: -75.6020, message: 'Transparencia Verificada.' },
+    { id: 'ad5', type: 'Valla', locationName: 'Av Oriental con Cll 50', lat: 6.2490, lng: -75.5690, message: 'Menos trabas, más progreso.' },
+    { id: 'ad6', type: 'Paradero', locationName: 'Bus 225i San Javier', lat: 6.2540, lng: -75.6140, message: 'Salud mental protegida.' },
+    { id: 'ad7', type: 'Paradero', locationName: 'Facultad Minas (Cr 80)', lat: 6.2780, lng: -75.5980, message: 'La oportunidad es ahora.' },
+    { id: 'ad8', type: 'Valla', locationName: 'Unidad Deportiva Castilla', lat: 6.2970, lng: -75.5760, message: 'De la cancha a la ley.' },
+    { id: 'ad9', type: 'Valla', locationName: 'Av San Juan con Cr 74', lat: 6.2530, lng: -75.6030, message: 'Vigilamos tu patrimonio.' },
+    { id: 'ad10', type: 'Estación', locationName: 'Terminal Parque Aranjuez', lat: 6.2870, lng: -75.5610, message: 'Tu trabajo mueve a Medellín.' },
 ];
 
 const DEMO_SEGMENTS: Segment[] = [
@@ -117,7 +188,7 @@ const DEMO_SEGMENTS: Segment[] = [
   { id: 's3', name: 'Líderes Deportivos / Clubes', active: true, weight: 1.3 },
   { id: 's4', name: 'Madres Cabeza de Familia', active: true, weight: 1.4 },
   { id: 's5', name: 'Jóvenes Primer Votante', active: false, weight: 1.0 },
-  { id: 's6', name: 'Adulto Mayor - Pensionado', active: false, weight: 1.1 },
+  { id: 's6', name: 'Transportadores Informales', active: true, weight: 1.2 },
 ];
 
 const WEB_MENTIONS: WebMention[] = [
@@ -369,7 +440,7 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
     if (mapInstance.current) return; // Initialize once
 
     // 2. Initialize Map
-    const map = L.map(mapContainer.current).setView([6.2800, -75.5600], 12); // Centered between Bello and Medellin
+    const map = L.map(mapContainer.current).setView([6.2600, -75.5800], 12); // Centered on Medellín
     mapInstance.current = map;
 
     // Add Tiles (OSM)
@@ -383,16 +454,32 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
     const heatLayer = L.layerGroup().addTo(map);
     const criticalLayer = L.layerGroup();
     const territoryLayer = L.layerGroup();
+    const adsLayer = L.layerGroup().addTo(map);
 
     layerGroups.current = {
-      "Estrategia 40k (Calor)": heatLayer,
+      "Estrategia (Hexágonos)": heatLayer,
       "Puntos Críticos": criticalLayer,
+      "Infraestructura Ads": adsLayer,
       "Territorios Base": territoryLayer
     };
 
     // Add Layer Control
     L.control.layers(null, layerGroups.current, { collapsed: false }).addTo(map);
     
+    // Add Legend (Custom Control)
+    const legend = new L.Control({ position: 'bottomright' });
+    legend.onAdd = function () {
+        const div = L.DomUtil.create('div', 'info legend bg-white p-3 rounded shadow-lg text-xs');
+        div.innerHTML = `
+            <h4 class="font-bold mb-1">Convenciones Estratégicas</h4>
+            <div class="flex items-center mb-1"><span class="w-2 h-2 rounded-full bg-blue-600 mr-2"></span> Publicidad (Vallas/Paraderos)</div>
+            <div class="flex items-center mb-1"><span style="background:#dc2626; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Alta Densidad (Idx >80)</div>
+            <div class="flex items-center mb-1"><span style="background:#f97316; width:10px; height:10px; display:inline-block; margin-right:5px;"></span> Media-Alta (Idx >60)</div>
+        `;
+        return div;
+    };
+    legend.addTo(map);
+
     return () => {
         if(mapInstance.current) {
             mapInstance.current.remove();
@@ -405,32 +492,67 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
   useEffect(() => {
     if (!mapInstance.current) return;
 
-    const { "Estrategia 40k (Calor)": heatLayer, "Puntos Críticos": criticalLayer, "Territorios Base": territoryLayer } = layerGroups.current;
+    const { "Estrategia (Hexágonos)": heatLayer, "Puntos Críticos": criticalLayer, "Territorios Base": territoryLayer, "Infraestructura Ads": adsLayer } = layerGroups.current;
     
     // Clear previous layers
     heatLayer.clearLayers();
     criticalLayer.clearLayers();
     territoryLayer.clearLayers();
+    adsLayer.clearLayers();
+
+    // 1. Render Ad Locations (New Layer)
+    AD_LOCATIONS.forEach(ad => {
+        const iconHtml = `<div class="bg-blue-600 text-white rounded-full p-1 shadow-lg border-2 border-white flex items-center justify-center w-6 h-6 transform hover:scale-125 transition-transform duration-300">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+        </div>`;
+        
+        const customIcon = L.divIcon({
+            html: iconHtml,
+            className: 'custom-ad-icon',
+            iconSize: [24, 24],
+            iconAnchor: [12, 12]
+        });
+
+        const marker = L.marker([ad.lat, ad.lng], { icon: customIcon });
+        const popupContent = `
+            <div class="p-2 min-w-[200px]">
+                <div class="flex items-center mb-2">
+                    <span class="text-[10px] font-bold uppercase bg-blue-100 text-blue-800 px-1.5 py-0.5 rounded border border-blue-200">${ad.type}</span>
+                </div>
+                <h4 class="font-bold text-sm text-gray-800 leading-tight mb-2">${ad.locationName}</h4>
+                <div class="bg-gray-50 border-l-2 border-blue-500 pl-2 py-1">
+                    <p class="text-xs text-gray-600 italic leading-relaxed">"${ad.message}"</p>
+                </div>
+            </div>
+        `;
+        marker.bindPopup(popupContent);
+        adsLayer.addLayer(marker);
+    });
 
     processedZones.forEach(zone => {
         const color = getColor(zone.opportunityIndex);
         const radius = 0.008; // Approx size for hexagon
 
-        // 1. Heatmap Layer (Hexagons)
+        // 2. Heatmap Layer (Hexagons)
         const hexPoints = getHexagonPoints(zone.lat, zone.lng, radius);
         const polygon = L.polygon(hexPoints, {
             color: 'white',
             weight: 1,
             fillColor: color,
-            fillOpacity: 0.6
+            fillOpacity: 0.5
         });
         
         const popupContent = `
-            <div class="text-sm font-sans min-w-[200px]">
+            <div class="text-sm font-sans min-w-[220px]">
                 <h3 class="font-bold text-gray-800 border-b pb-1 mb-1">${zone.name}</h3>
+                <p class="text-xs mb-1"><strong>Target:</strong> ${zone.targetAudience}</p>
+                 <div class="text-xs italic bg-gray-50 p-2 mb-2 text-gray-600 border border-gray-200 rounded relative">
+                    <span class="absolute top-0 left-1 text-gray-300 text-lg leading-none">"</span>
+                    ${zone.strategicMessage}
+                </div>
                 <div class="grid grid-cols-2 gap-2 text-xs">
                     <p class="mb-0"><strong>Población:</strong></p> <p>${zone.population.toLocaleString()}</p>
-                    <p class="mb-0"><strong>Afinidad:</strong></p> <p>${(zone.opportunityIndex * 100).toFixed(0)}%</p>
+                    <p class="mb-0"><strong>Idx Oportunidad:</strong></p> <p>${(zone.opportunityIndex * 100).toFixed(0)}</p>
                 </div>
                 <div class="mt-2 pt-2 border-t border-gray-100">
                     <div class="text-xs text-gray-500">Proyección Votos (Sim):</div>
@@ -441,20 +563,20 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
         polygon.bindPopup(popupContent);
         heatLayer.addLayer(polygon);
 
-        // 2. Critical Points Layer (Markers for top zones)
+        // 3. Critical Points Layer (Markers for top zones)
         if (zone.opportunityIndex > 0.6) {
              const marker = L.circleMarker([zone.lat, zone.lng], {
-                radius: 6,
+                radius: 4,
                 fillColor: '#1e3a8a', // Blue-900
                 color: '#fff',
                 weight: 2,
                 fillOpacity: 1
              });
-             marker.bindTooltip(`<b>${zone.estimatedVotes}</b><br>${zone.name}`, { permanent: false, direction: 'top' });
+             marker.bindTooltip(`<b>${(zone.opportunityIndex * 100).toFixed(0)}</b><br>${zone.name}`, { permanent: false, direction: 'top' });
              criticalLayer.addLayer(marker);
         }
 
-        // 3. Territory Layer (Circles)
+        // 4. Territory Layer (Circles)
         const circle = L.circle([zone.lat, zone.lng], {
             color: '#6b7280',
             fillColor: '#9ca3af',
