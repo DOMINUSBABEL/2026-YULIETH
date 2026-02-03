@@ -887,7 +887,7 @@ const App = () => {
     setSegments(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
   };
 
-  const activeSegmentsCount = segments.filter(s => s.active).length;
+  const activeSegmentsCount = useMemo(() => segments.filter(s => s.active).length, [segments]);
 
   return (
     <div className="flex h-screen bg-gray-50 text-gray-800 font-sans overflow-hidden">
