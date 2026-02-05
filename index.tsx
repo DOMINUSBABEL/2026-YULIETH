@@ -488,19 +488,13 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
     }
   }, []);
 
-  // Update Layers when data changes
+  // 1. Static Layers (Ads)
   useEffect(() => {
     if (!mapInstance.current) return;
-
-    const { "Estrategia (Hexágonos)": heatLayer, "Puntos Críticos": criticalLayer, "Territorios Base": territoryLayer, "Infraestructura Ads": adsLayer } = layerGroups.current;
+    const { "Infraestructura Ads": adsLayer } = layerGroups.current;
     
-    // Clear previous layers
-    heatLayer.clearLayers();
-    criticalLayer.clearLayers();
-    territoryLayer.clearLayers();
     adsLayer.clearLayers();
 
-    // 1. Render Ad Locations (New Layer)
     AD_LOCATIONS.forEach(ad => {
         const iconHtml = `<div class="bg-blue-600 text-white rounded-full p-1 shadow-lg border-2 border-white flex items-center justify-center w-6 h-6 transform hover:scale-125 transition-transform duration-300">
             <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
@@ -528,12 +522,43 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
         marker.bindPopup(popupContent);
         adsLayer.addLayer(marker);
     });
+  }, []); // Run once
+
+  // 2. Semi-Static Layers (Territories)
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    const { "Territorios Base": territoryLayer } = layerGroups.current;
+
+    territoryLayer.clearLayers();
+
+    zones.forEach(zone => {
+        // Territory Layer (Circles)
+        const circle = L.circle([zone.lat, zone.lng], {
+            color: '#6b7280',
+            fillColor: '#9ca3af',
+            fillOpacity: 0.05,
+            radius: 800 // Meters
+        });
+        territoryLayer.addLayer(circle);
+    });
+  }, [zones]); // Updates only if zones prop changes
+
+  // 3. Dynamic Layers (Heatmap & Critical Points)
+  useEffect(() => {
+    if (!mapInstance.current) return;
+    console.time('DynamicUpdate');
+
+    const { "Estrategia (Hexágonos)": heatLayer, "Puntos Críticos": criticalLayer } = layerGroups.current;
+
+    // Clear previous dynamic layers
+    heatLayer.clearLayers();
+    criticalLayer.clearLayers();
 
     processedZones.forEach(zone => {
         const color = getColor(zone.opportunityIndex);
         const radius = 0.008; // Approx size for hexagon
 
-        // 2. Heatmap Layer (Hexagons)
+        // Heatmap Layer (Hexagons)
         const hexPoints = getHexagonPoints(zone.lat, zone.lng, radius);
         const polygon = L.polygon(hexPoints, {
             color: 'white',
@@ -563,7 +588,7 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
         polygon.bindPopup(popupContent);
         heatLayer.addLayer(polygon);
 
-        // 3. Critical Points Layer (Markers for top zones)
+        // Critical Points Layer (Markers for top zones)
         if (zone.opportunityIndex > 0.6) {
              const marker = L.circleMarker([zone.lat, zone.lng], {
                 radius: 4,
@@ -575,17 +600,8 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
              marker.bindTooltip(`<b>${(zone.opportunityIndex * 100).toFixed(0)}</b><br>${zone.name}`, { permanent: false, direction: 'top' });
              criticalLayer.addLayer(marker);
         }
-
-        // 4. Territory Layer (Circles)
-        const circle = L.circle([zone.lat, zone.lng], {
-            color: '#6b7280',
-            fillColor: '#9ca3af',
-            fillOpacity: 0.05,
-            radius: 800 // Meters
-        });
-        territoryLayer.addLayer(circle);
-
     });
+    console.timeEnd('DynamicUpdate');
 
   }, [processedZones]);
 
