@@ -363,7 +363,8 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
 
   // --- Projection Logic ---
   const processedZones = useMemo(() => {
-    const avgWeight = activeSegments.filter(s => s.active).reduce((acc, curr) => acc + curr.weight, 0) / (activeSegments.filter(s => s.active).length || 1);
+    const activeFiltered = activeSegments.filter(s => s.active);
+    const avgWeight = activeFiltered.reduce((acc, curr) => acc + curr.weight, 0) / (activeFiltered.length || 1);
     
     return zones.map(zone => {
       // Logic: Start with base density * segment interest
