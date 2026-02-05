@@ -205,6 +205,17 @@ const LEGISLATIVE_STATS = {
   commissions: ['Constitucional', 'Derechos de la Mujer', 'Presupuesto']
 };
 
+const AD_ICON_HTML = `<div class="bg-blue-600 text-white rounded-full p-1 shadow-lg border-2 border-white flex items-center justify-center w-6 h-6 transform hover:scale-125 transition-transform duration-300">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+        </div>`;
+
+const CUSTOM_AD_ICON = L.divIcon({
+    html: AD_ICON_HTML,
+    className: 'custom-ad-icon',
+    iconSize: [24, 24],
+    iconAnchor: [12, 12]
+});
+
 // --- Helper Functions ---
 
 const getColor = (score: number) => {
@@ -502,18 +513,7 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
 
     // 1. Render Ad Locations (New Layer)
     AD_LOCATIONS.forEach(ad => {
-        const iconHtml = `<div class="bg-blue-600 text-white rounded-full p-1 shadow-lg border-2 border-white flex items-center justify-center w-6 h-6 transform hover:scale-125 transition-transform duration-300">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
-        </div>`;
-        
-        const customIcon = L.divIcon({
-            html: iconHtml,
-            className: 'custom-ad-icon',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
-        });
-
-        const marker = L.marker([ad.lat, ad.lng], { icon: customIcon });
+        const marker = L.marker([ad.lat, ad.lng], { icon: CUSTOM_AD_ICON });
         const popupContent = `
             <div class="p-2 min-w-[200px]">
                 <div class="flex items-center mb-2">
