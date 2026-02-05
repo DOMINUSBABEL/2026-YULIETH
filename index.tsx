@@ -349,6 +349,7 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
   const mapContainer = useRef(null);
   const mapInstance = useRef<L.Map | null>(null);
   const layerGroups = useRef<{ [key: string]: L.LayerGroup }>({});
+  const heatmapPolygonsRef = useRef<{ [key: string]: L.Polygon }>({});
   
   // --- Simulation State ---
   const [simParams, setSimParams] = useState<SimulationParams>({
@@ -495,7 +496,7 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
     const { "Estrategia (Hexágonos)": heatLayer, "Puntos Críticos": criticalLayer, "Territorios Base": territoryLayer, "Infraestructura Ads": adsLayer } = layerGroups.current;
     
     // Clear previous layers
-    heatLayer.clearLayers();
+    // heatLayer.clearLayers(); // Optimization: Update existing polygons instead of rebuilding
     criticalLayer.clearLayers();
     territoryLayer.clearLayers();
     adsLayer.clearLayers();
@@ -531,16 +532,6 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
 
     processedZones.forEach(zone => {
         const color = getColor(zone.opportunityIndex);
-        const radius = 0.008; // Approx size for hexagon
-
-        // 2. Heatmap Layer (Hexagons)
-        const hexPoints = getHexagonPoints(zone.lat, zone.lng, radius);
-        const polygon = L.polygon(hexPoints, {
-            color: 'white',
-            weight: 1,
-            fillColor: color,
-            fillOpacity: 0.5
-        });
         
         const popupContent = `
             <div class="text-sm font-sans min-w-[220px]">
@@ -560,8 +551,26 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
                 </div>
             </div>
         `;
-        polygon.bindPopup(popupContent);
-        heatLayer.addLayer(polygon);
+
+        // 2. Heatmap Layer (Hexagons)
+        if (heatmapPolygonsRef.current[zone.id]) {
+             const polygon = heatmapPolygonsRef.current[zone.id];
+             polygon.setStyle({ fillColor: color });
+             polygon.setPopupContent(popupContent);
+        } else {
+             const radius = 0.008; // Approx size for hexagon
+             const hexPoints = getHexagonPoints(zone.lat, zone.lng, radius);
+             const polygon = L.polygon(hexPoints, {
+                 color: 'white',
+                 weight: 1,
+                 fillColor: color,
+                 fillOpacity: 0.5
+             });
+
+             polygon.bindPopup(popupContent);
+             heatLayer.addLayer(polygon);
+             heatmapPolygonsRef.current[zone.id] = polygon;
+        }
 
         // 3. Critical Points Layer (Markers for top zones)
         if (zone.opportunityIndex > 0.6) {
