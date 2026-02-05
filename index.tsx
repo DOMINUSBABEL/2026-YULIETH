@@ -794,8 +794,14 @@ const LegislativeView = () => {
              <div className="text-3xl font-bold text-green-600">{LEGISLATIVE_STATS.attendance}%</div>
           </div>
           <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-sm">
-             <div className="text-gray-500 text-xs font-bold uppercase mb-1">Comisiones</div>
-             <div className="text-sm font-medium text-gray-700">{LEGISLATIVE_STATS.commissions.length} Principales</div>
+             <div className="text-gray-500 text-xs font-bold uppercase mb-2">Comisiones</div>
+             <div className="space-y-1">
+                {LEGISLATIVE_STATS.commissions.map((c, i) => (
+                    <div key={i} className="text-xs font-medium text-gray-700 bg-gray-50 px-2 py-1 rounded border border-gray-100 truncate" title={c}>
+                        {c}
+                    </div>
+                ))}
+             </div>
           </div>
        </div>
 
@@ -824,6 +830,35 @@ const LegislativeView = () => {
 };
 
 const ReportsView = ({ zones }: { zones: ZoneData[] }) => {
+  const handleExportCSV = () => {
+    const headers = ['ID', 'Zona/Barrio', 'Municipio', 'Población', 'Apoyo Histórico', 'Densidad', 'Target Audience', 'Strategic Message'];
+    const csvContent = [
+      headers.join(','),
+      ...zones.map(zone => [
+        zone.id,
+        `"${zone.name}"`,
+        zone.municipality,
+        zone.population,
+        zone.historicalSupport,
+        zone.demographicDensity,
+        `"${zone.targetAudience}"`,
+        `"${zone.strategicMessage}"`
+      ].join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', 'reporte_territorios.csv');
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
@@ -832,7 +867,9 @@ const ReportsView = ({ zones }: { zones: ZoneData[] }) => {
               <h2 className="text-lg font-bold text-gray-800">Reporte de Territorios</h2>
               <p className="text-sm text-gray-500">Listado consolidado de zonas estratégicas</p>
            </div>
-           <button className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
+           <button
+             onClick={handleExportCSV}
+             className="flex items-center space-x-2 bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors">
               <Download size={16} />
               <span>Exportar CSV</span>
            </button>
@@ -848,6 +885,8 @@ const ReportsView = ({ zones }: { zones: ZoneData[] }) => {
                     <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase text-right">Población</th>
                     <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase text-center">Apoyo Hist.</th>
                     <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase text-center">Densidad Y</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase">Público Objetivo</th>
+                    <th className="py-3 px-4 text-xs font-bold text-gray-500 uppercase">Mensaje Estratégico</th>
                  </tr>
               </thead>
               <tbody className="divide-y divide-gray-100">
@@ -867,6 +906,8 @@ const ReportsView = ({ zones }: { zones: ZoneData[] }) => {
                              <div className="bg-blue-600 h-1.5 rounded-full" style={{ width: `${zone.demographicDensity * 100}%` }}></div>
                           </div>
                        </td>
+                       <td className="py-3 px-4 text-sm text-gray-600">{zone.targetAudience}</td>
+                       <td className="py-3 px-4 text-gray-600 text-xs italic">"{zone.strategicMessage}"</td>
                     </tr>
                  ))}
               </tbody>
