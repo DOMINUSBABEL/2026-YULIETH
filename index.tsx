@@ -169,6 +169,10 @@ const INITIAL_ZONES: ZoneData[] = [
   }
 ];
 
+const AD_ICON_HTML = `<div class="bg-blue-600 text-white rounded-full p-1 shadow-lg border-2 border-white flex items-center justify-center w-6 h-6 transform hover:scale-125 transition-transform duration-300">
+            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
+        </div>`;
+
 const AD_LOCATIONS: AdLocation[] = [
     { id: 'ad1', type: 'Paradero', locationName: 'Entrada Santo Domingo Savio N°1', lat: 6.3010, lng: -75.5420, message: 'Tu futuro no es un favor.' },
     { id: 'ad2', type: 'Estación', locationName: 'Estación Metrocable Sto Domingo', lat: 6.2980, lng: -75.5440, message: 'Matrícula Cero.' },
@@ -502,19 +506,15 @@ const RealMapView = ({ zones, activeSegments, toggleSegment }: { zones: ZoneData
     adsLayer.clearLayers();
 
     // 1. Render Ad Locations (New Layer)
-    AD_LOCATIONS.forEach(ad => {
-        const iconHtml = `<div class="bg-blue-600 text-white rounded-full p-1 shadow-lg border-2 border-white flex items-center justify-center w-6 h-6 transform hover:scale-125 transition-transform duration-300">
-            <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="m3 11 18-5v12L3 14v-3z"/><path d="M11.6 16.8a3 3 0 1 1-5.8-1.6"/></svg>
-        </div>`;
-        
-        const customIcon = L.divIcon({
-            html: iconHtml,
-            className: 'custom-ad-icon',
-            iconSize: [24, 24],
-            iconAnchor: [12, 12]
-        });
+    const customAdIcon = L.divIcon({
+        html: AD_ICON_HTML,
+        className: 'custom-ad-icon',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12]
+    });
 
-        const marker = L.marker([ad.lat, ad.lng], { icon: customIcon });
+    AD_LOCATIONS.forEach(ad => {
+        const marker = L.marker([ad.lat, ad.lng], { icon: customAdIcon });
         const popupContent = `
             <div class="p-2 min-w-[200px]">
                 <div class="flex items-center mb-2">
